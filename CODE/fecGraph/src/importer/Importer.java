@@ -1,6 +1,9 @@
 package importer;
 
 import org.neo4j.graphdb.RelationshipType;
+import org.neo4j.graphdb.index.Index;
+import org.neo4j.graphdb.index.IndexManager;
+import org.neo4j.graphdb.index.RelationshipIndex;
 import org.neo4j.kernel.impl.util.FileUtils;
 import org.neo4j.unsafe.batchinsert.BatchInserter;
 import org.neo4j.unsafe.batchinsert.BatchInserters;
@@ -22,6 +25,7 @@ public class Importer {
     private static Report report;
     private BatchInserter db;
     private BatchInserterIndexProvider lucene;
+ 	
     public static final File STORE_DIR = new File("/Volumes/HD1/Users/dsfauth/fec_200");
     public static final File CAND_FILE = new File("/Volumes/HD1/Users/dsfauth/fecdata/candidate.dta");
     public static final File COMMITTEE_FILE = new File("/Volumes/HD1/Users/dsfauth/fecdata/committee.dta");
@@ -36,6 +40,7 @@ public class Importer {
     public static final File SUPERPACEXPEND_FILE = new File("/Volumes/HD1/Users/dsfauth/fecdata/superPacExpend.dta");
     public static final File SUPERPACCONTRIB_FILE = new File("/Volumes/HD1/Users/dsfauth/fecdata/superPacDonors.dta");
     public static final int USERS = 3000000;
+    
     enum MyRelationshipTypes implements RelationshipType {SUPPORTS, FOR, CONTRIBUTES, RECEIVES, GAVE,SUPERPACGIFT,SUPERPACEXPEND,SUPERPACACTION}
    	Map<String,Long> cache = new HashMap<String,Long>(USERS);
     Map<String,Long> contribCache = new HashMap<String,Long>(USERS);
@@ -58,7 +63,7 @@ public class Importer {
 		                 + "neostore.propertystore.db.index.mapped_memory=15M" );
 		        fw.close();
 	        }
-
+	        
         config = MapUtil.load( new File(
                 "batch.properties" ) );
 
@@ -111,21 +116,23 @@ public class Importer {
         if (graphDb.exists()) {
             FileUtils.deleteRecursively(graphDb);
         }
+ 
         Importer importBatch = new Importer(graphDb);
         try {
-            if (commFile.exists()) importBatch.importNodes(new FileReader(commFile));
+            if (commFile.exists()) importBatch.importCommittees(new FileReader(commFile));
             if (candFile.exists()) importBatch.importCandidates(new FileReader(candFile));
-            if (indivFile1.exists()) importBatch.importNodes(new FileReader(INDIV_FILE1));
-            if (indivFile2.exists()) importBatch.importNodes(new FileReader(INDIV_FILE2));
+            if (indivFile1.exists()) importBatch.importIndiv(new FileReader(INDIV_FILE1),0);
+            if (indivFile2.exists()) importBatch.importIndiv(new FileReader(INDIV_FILE2),1);
             if (contribFile1.exists()) importBatch.importContrib(new FileReader(contribFile1));
             if (contribFile2.exists()) importBatch.importContrib(new FileReader(contribFile2));
             if (contribFile3.exists()) importBatch.importContrib(new FileReader(contribFile3));
             if (contribFile4.exists()) importBatch.importContrib(new FileReader(contribFile4));
             if (contribFile5.exists()) importBatch.importContrib(new FileReader(contribFile5));
-            if (superPacList.exists()) importBatch.importSuperPac(new FileReader(superPacList));
+            if (superPacList.exists()) importBatch.importCommittees(new FileReader(superPacList));
             if (superContrib.exists()) importBatch.importSuperPacContrib(new FileReader(superContrib));
             if (superExpend.exists()) importBatch.importSuperPacExpend(new FileReader(superExpend));
- //           if (relationshipsFile.exists()) importBatch.importRelationships(new FileReader(relationshipsFile));
+ 
+            //           if (relationshipsFile.exists()) importBatch.importRelationships(new FileReader(relationshipsFile));
 //			for (int i = 3; i < args.length; i = i + 4) {
 //				indexFile = new File(args[i + 3]);
  //               if (!indexFile.exists()) continue;
@@ -263,22 +270,63 @@ public class Importer {
         }
     }
 
-    void importNodes(Reader reader) throws IOException {
+    void importIndiv(Reader reader, int flag) throws IOException {
         String[] strTemp;
         BufferedReader bf = new BufferedReader(reader);
         final Data data = new Data(bf.readLine(), "\\|", 0);
         String line;
         report.reset();
+        	LuceneBatchInserterIndexProvider indexProvider = new LuceneBatchInserterIndexProvider(db); 	
+        	BatchInserterIndex idxIndivContrib = indexProvider.nodeIndex( "individuals", MapUtil.stringMap( "type", "exact" ) );
+        	idxIndivContrib.setCacheCapacity( "indivName", 2000000 );
         while ((line = bf.readLine()) != null) {
         	strTemp = line.split("\\|");
         	long caller = db.createNode(data.update(line));
         	//System.out.println(caller);
+        	Map<String, Object> properties = MapUtil.map( "indivName", strTemp[1]);
+    		properties.put("indivCity", strTemp[2]);
+    		properties.put("indivState", strTemp[3]);
+    		properties.put("indivZip", strTemp[4]);
+    		properties.put("indivOCC", strTemp[6]);
+    		idxIndivContrib.add(caller,properties);
         	cache.put(strTemp[0], caller);
            
             report.dots();
         }
+        idxIndivContrib.flush();
+        indexProvider.shutdown();
         report.finishImport("Nodes");
     }
+    
+    void importCommittees(Reader reader) throws IOException {
+        String[] strTemp;
+        BufferedReader bf = new BufferedReader(reader);
+        final Data data = new Data(bf.readLine(), "\\|", 0);
+        String line;
+        report.reset();
+        LuceneBatchInserterIndexProvider indexProvider = new LuceneBatchInserterIndexProvider(db); 	
+        BatchInserterIndex idxCommittees = indexProvider.nodeIndex( "committees", MapUtil.stringMap( "type", "exact" ) );
+        idxCommittees.setCacheCapacity( "commName", 100000 );
+
+        while ((line = bf.readLine()) != null) {
+        	strTemp = line.split("\\|");
+        	long committee = db.createNode(data.update(line));
+        	Map<String, Object> properties = MapUtil.map( "commName", strTemp[1]);
+    		properties.put("commID", strTemp[0]);
+    		properties.put("commTreas", strTemp[3]);
+    		properties.put("commState", strTemp[7]);
+    		idxCommittees.add(committee,properties);
+        	//System.out.println(caller);
+        	cache.put(strTemp[0], committee);
+           idxCommittees.flush();
+            report.dots();
+        }
+        idxCommittees.flush();
+        indexProvider.shutdown();
+        
+        report.finishImport("Nodes");
+    }
+
     
     void importSuperPac(Reader reader) throws IOException {
         String[] strTemp;
@@ -303,11 +351,14 @@ public class Importer {
     }
 
     void importSuperPacContrib(Reader reader) throws IOException {
-    	System.out.println("SuperPac Contributions");
-        String[] strTemp;
+    	String[] strTemp;
         BufferedReader bf = new BufferedReader(reader);
         final Data data = new Data(bf.readLine(), "\\|", 0);
         String line;
+        LuceneBatchInserterIndexProvider indexProvider = new LuceneBatchInserterIndexProvider(db); 	
+        BatchInserterIndex idxSuperPacContribs = indexProvider.nodeIndex( "superPacDonations", MapUtil.stringMap( "type", "fulltext" ) );
+        idxSuperPacContribs.setCacheCapacity( "commID", 200000 );
+
         report.reset();
         while ((line = bf.readLine()) != null) {
         	strTemp = line.split("\\|");
@@ -315,32 +366,56 @@ public class Importer {
         	Long lCommId = cache.get(strTemp[2]);
             if (lCommId!=null){
             	db.createRelationship(lCommId, pacCont, MyRelationshipTypes.SUPERPACGIFT, null);
-            }         
+            }   
+            
+            Map<String, Object> properties = MapUtil.map( "commID", strTemp[2]);
+    		properties.put("donatingOrg", strTemp[3]);
+    		properties.put("donorLast", strTemp[4]);
+    		properties.put("donorState", strTemp[7]);
+    		properties.put("donorFullName", strTemp[15]);
+    		idxSuperPacContribs.add(pacCont,properties);
             report.dots();
         }
+        System.out.println("Finished with SUPERPAC Contributions");
         report.finishImport("Nodes");
+        idxSuperPacContribs.flush();
+        indexProvider.shutdown();
     }
     
     void importSuperPacExpend(Reader reader) throws IOException {
-    	System.out.println("SuperPac Expenditures");
-        String[] strTemp;
+    	 String[] strTemp;
         BufferedReader bf = new BufferedReader(reader);
         final Data data = new Data(bf.readLine(), "\\|", 0);
         String line;
+        LuceneBatchInserterIndexProvider indexProvider = new LuceneBatchInserterIndexProvider(db); 	
+        BatchInserterIndex idxSuperPacExpend = indexProvider.nodeIndex( "superPacExpend", MapUtil.stringMap( "type", "exact" ) );
+        idxSuperPacExpend.setCacheCapacity( "commID", 200000 );
+
         report.reset();
         while ((line = bf.readLine()) != null) {
         	strTemp = line.split("\\|");
+        //	System.out.println(line);
         	long pacExpend = db.createNode(data.update(line));
-        	Long lCommId = cache.get(strTemp[2]);
-        	Long lCandId = cache.get(strTemp[6]);
+        	Long lCommId = cache.get(strTemp[3]);
+        	Long lCandId = cache.get(strTemp[7]);
             if (lCommId!=null){
             	db.createRelationship(lCommId, pacExpend, MyRelationshipTypes.SUPERPACEXPEND, null);
             }         
             if (lCandId!=null){
             	db.createRelationship(lCandId, pacExpend, MyRelationshipTypes.SUPERPACACTION, null);
-            }         
+            }  
+            
+            Map<String, Object> properties = MapUtil.map( "commID", strTemp[2]);
+    		properties.put("isSuperPAC", strTemp[3]);
+    		properties.put("candidate", strTemp[5]);
+    		properties.put("SUPPORT_OPPOSE", strTemp[6]);
+    		properties.put("expendAmt", strTemp[12]);
+    		idxSuperPacExpend.add(pacExpend,properties);
             report.dots();
         }
+        idxSuperPacExpend.flush();
+        indexProvider.shutdown();
+        System.out.println("Finished with SUPERPAC Expenditures");
         report.finishImport("Nodes");
     }
 
@@ -350,15 +425,28 @@ public class Importer {
         final Data data = new Data(bf.readLine(), "\\|", 0);
         String line;
         report.reset();
+        LuceneBatchInserterIndexProvider indexProvider = new LuceneBatchInserterIndexProvider(db);
+    	
+        BatchInserterIndex candidates = indexProvider.nodeIndex( "candidates", MapUtil.stringMap( "type", "exact" ) );
+        candidates.setCacheCapacity( "candidateName", 100000 );
         while ((line = bf.readLine()) != null) {
         	strTemp = line.split("\\|");
         	long polCand = db.createNode(data.update(line));
+        		Map<String, Object> properties = MapUtil.map( "candidateName", strTemp[1]);
+        		properties.put("candidateID", strTemp[0]);
+        		properties.put("candidateParty", strTemp[3]);
+        		properties.put("candidateOfficeState", strTemp[5]);
+        		properties.put("candidateElectionYear",strTemp[4]);
+        		candidates.add(polCand,properties);
+        		candidates.flush();
         	Long lCommId = cache.get(strTemp[10]);
             if (lCommId!=null){
             	db.createRelationship(lCommId, polCand, MyRelationshipTypes.SUPPORTS, null);
             }         
             report.dots();
         }
+    	candidates.flush();
+    	indexProvider.shutdown();
         report.finishImport("Nodes");
     }
     
@@ -368,20 +456,37 @@ public class Importer {
         final Data data = new Data(bf.readLine(), "\\|", 0);
         String line;
         report.reset();
+        LuceneBatchInserterIndexProvider indexProvider = new LuceneBatchInserterIndexProvider(db);
+    	BatchInserterIndex contributors = indexProvider.nodeIndex( "contributions", MapUtil.stringMap( "type", "exact" ) );
+        contributors.setCacheCapacity( "commID", 2500000 );
+       
         while ((line = bf.readLine()) != null) {
-        	strTemp = line.split("\\|");
+        	strTemp = line.split("\\|",-1);
+        	//System.out.println(line);
         	long indContr = db.createNode(data.update(line));
         	Long lCommId = cache.get(strTemp[1]);
         	Long lIndivId = cache.get(strTemp[0]);
             if (lCommId!=null){
             	db.createRelationship(lCommId, indContr, MyRelationshipTypes.RECEIVES, null);
+            	
             }  
             if (lIndivId!=null){
-            	db.createRelationship(lIndivId, indContr, MyRelationshipTypes.GAVE, null);
-            }         
-
+            	long indRel = db.createRelationship(lIndivId, indContr, MyRelationshipTypes.GAVE, null);
+            }   
+            
+            try{
+        		Map<String, Object> properties = MapUtil.map( "commID", strTemp[1]);
+        		properties.put("contribDate", strTemp[3]);
+        		properties.put("contribAmt", strTemp[4]);
+        		contributors.add(indContr,properties);
+        	} catch (Exception e){
+        		System.out.println(e);
+        	}
             report.dots();
+            
         }
+        contributors.flush();
+        indexProvider.shutdown();
         report.finishImport("Nodes");
     }
    
