@@ -1,5 +1,6 @@
 package importer;
 
+
 import org.neo4j.graphdb.RelationshipType;
 import org.neo4j.graphdb.index.Index;
 import org.neo4j.graphdb.index.IndexManager;
@@ -26,22 +27,26 @@ public class Importer {
     private BatchInserter db;
     private BatchInserterIndexProvider lucene;
  	
-    public static final File STORE_DIR = new File("/Volumes/HD1/Users/dsfauth/fec_200");
-    public static final File CAND_FILE = new File("/Volumes/HD1/Users/dsfauth/fecdata/candidate.dta");
-    public static final File COMMITTEE_FILE = new File("/Volumes/HD1/Users/dsfauth/fecdata/committee.dta");
-    public static final File INDIV_FILE1 = new File("/Volumes/HD1/Users/dsfauth/fecdata/indivContrib1.dta");
-    public static final File INDIV_FILE2 = new File("/Volumes/HD1/Users/dsfauth/fecdata/indivContrib2.dta");
-    public static final File CONTRIB_FILE1 = new File("/Volumes/HD1/Users/dsfauth/fecdata/allIndivContrib1.dta");
-    public static final File CONTRIB_FILE2 = new File("/Volumes/HD1/Users/dsfauth/fecdata/allIndivContrib2.dta");
-    public static final File CONTRIB_FILE3 = new File("/Volumes/HD1/Users/dsfauth/fecdata/allIndivContrib3.dta");
-    public static final File CONTRIB_FILE4 = new File("/Volumes/HD1/Users/dsfauth/fecdata/allIndivContrib4.dta");
-    public static final File CONTRIB_FILE5 = new File("/Volumes/HD1/Users/dsfauth/fecdata/allIndivContrib5.dta");
-    public static final File SUPERPAC_FILE = new File("/Volumes/HD1/Users/dsfauth/fecdata/superPacList.dta");
-    public static final File SUPERPACEXPEND_FILE = new File("/Volumes/HD1/Users/dsfauth/fecdata/superPacExpend.dta");
-    public static final File SUPERPACCONTRIB_FILE = new File("/Volumes/HD1/Users/dsfauth/fecdata/superPacDonors.dta");
+    public static final File STORE_DIR = new File("./adv-fec.graphdb");
+    public static final File CAND_FILE = new File("./DATA/candidate.dta");
+    public static final File COMMITTEE_FILE = new File("./DATA/committee.dta");
+    public static final File INDIV_FILE1 = new File("./DATA/indivContrib1.dta");
+    public static final File INDIV_FILE2 = new File("./DATA/indivContrib2.dta");
+    public static final File CONTRIB_FILE1 = new File("./DATA/allIndivContrib1.dta");
+    public static final File CONTRIB_FILE2 = new File("./DATA/allIndivContrib2.dta");
+    public static final File CONTRIB_FILE3 = new File("./DATA/allIndivContrib3.dta");
+    public static final File CONTRIB_FILE4 = new File("./DATA/allIndivContrib4.dta");
+    public static final File CONTRIB_FILE5 = new File("./DATA/allIndivContrib5.dta");
+    public static final File SUPERPAC_FILE = new File("./DATA/superPacList.dta");
+    public static final File SUPERPACEXPEND_FILE = new File("./DATA/superPacExpend.dta");
+    public static final File SUPERPACCONTRIB_FILE = new File("./DATA/superPacDonors.dta");
+    public static final File POSTALCODE_FILE = new File("./DATA/ZipCodeCounties2.txt");
+    public static final File GCTP4_FILE = new File("./DATA/gctp4a.txt");
+    public static final File CENSUSAVGINCOME_FILE = new File("./DATA/CensusAvgIncomeCountyFiveYear2.txt");
+   
     public static final int USERS = 3000000;
     
-    enum MyRelationshipTypes implements RelationshipType {SUPPORTS, FOR, CONTRIBUTES, RECEIVES, GAVE,SUPERPACGIFT,SUPERPACEXPEND,SUPERPACACTION}
+    enum MyRelationshipTypes implements RelationshipType {SUPPORTS, FOR, CONTRIBUTES, RECEIVES, GAVE,SUPERPACGIFT,SUPERPACEXPEND,SUPERPACACTION, INCOME_IN}
    	Map<String,Long> cache = new HashMap<String,Long>(USERS);
     Map<String,Long> contribCache = new HashMap<String,Long>(USERS);
     
@@ -107,6 +112,10 @@ public class Importer {
         File superPacList = SUPERPAC_FILE;
         File superExpend = SUPERPACEXPEND_FILE;
         File superContrib = SUPERPACCONTRIB_FILE;
+        File postalCodes = POSTALCODE_FILE;
+        File gctp4file = GCTP4_FILE;
+        File censusAvgIncome = CENSUSAVGINCOME_FILE;
+
 //        File nodesFile = new File(args[1]);
 //        File relationshipsFile = new File(args[2]);
         File indexFile;
@@ -119,6 +128,9 @@ public class Importer {
  
         Importer importBatch = new Importer(graphDb);
         try {
+//          if (gctp4file.exists()) importBatch.importCensusData(new FileReader(gctp4file));
+            if (postalCodes.exists()) importBatch.importPostalCodes(new FileReader(postalCodes));
+            if (censusAvgIncome.exists()) importBatch.importCensusAvgIncome(new FileReader(censusAvgIncome));
             if (commFile.exists()) importBatch.importCommittees(new FileReader(commFile));
             if (candFile.exists()) importBatch.importCandidates(new FileReader(candFile));
             if (indivFile1.exists()) importBatch.importIndiv(new FileReader(INDIV_FILE1),0);
@@ -197,17 +209,20 @@ public class Importer {
         }
 
         private int split(String line) {
-            final StringTokenizer st = new StringTokenizer(line, delim,true);
+            // final StringTokenizer st = new StringTokenizer(line, delim,true);
+            final String[] values = line.split(delim);
+
 //            System.out.println(line);
+            if (values.length < lineSize) {
+                System.err.println("ERROR: line has fewer than expected fields (" + lineSize + ")");
+                System.err.println(line);
+                System.exit(1); // ABK TODO: manage error codes
+            }
             int count=0;
             for (int i = 0; i < lineSize; i++) {
-                String value = st.nextToken();
-                if (value.equals(delim)) {
-                    lineData[i] = null;
-                } else {
-                    lineData[i] = value.trim().isEmpty() ? null : value;
-                    if (i< lineSize -1) st.nextToken();
-                }
+                // String value = st.nextToken();
+                String value = values[i];
+                lineData[i] = value.trim().isEmpty() ? null : value;
                 if (i >= offset && lineData[i]!=null) {
                     data[count++]=fields[i];
                     data[count++]=types[i].convert(lineData[i]);
@@ -371,8 +386,9 @@ public class Importer {
             Map<String, Object> properties = MapUtil.map( "commID", strTemp[2]);
     		properties.put("donatingOrg", strTemp[3]);
     		properties.put("donorLast", strTemp[4]);
+            properties.put("donorFirst", strTemp[5]);
     		properties.put("donorState", strTemp[7]);
-    		properties.put("donorFullName", strTemp[15]);
+    		// properties.put("donorFullName", strTemp[15]);
     		idxSuperPacContribs.add(pacCont,properties);
             report.dots();
         }
@@ -490,6 +506,109 @@ public class Importer {
         report.finishImport("Nodes");
     }
    
+    void importCensusData(Reader reader) throws IOException {
+        String[] strTemp;
+        BufferedReader bf = new BufferedReader(reader);
+        final Data data = new Data(bf.readLine(), "\\|", 0);
+        String line;
+        report.reset();
+        LuceneBatchInserterIndexProvider indexProvider = new LuceneBatchInserterIndexProvider(db); 	
+        BatchInserterIndex idxCensus = indexProvider.nodeIndex( "GCTLabel", MapUtil.stringMap( "type", "exact" ) );
+        idxCensus.setCacheCapacity( "ZipCode", 100000 );
+
+        while ((line = bf.readLine()) != null) {
+        	strTemp = line.split("\\|");
+        	long postalCodes = db.createNode(data.update(line));
+        	Map<String, Object> properties = MapUtil.map( "ZipCode", strTemp[1]);
+        	properties.put("State", strTemp[0]);
+    		properties.put("header1", strTemp[2]);
+    		properties.put("header2", strTemp[3]);
+    		properties.put("header3", strTemp[4]);
+    		properties.put("header4", strTemp[5]);
+    		properties.put("header5", strTemp[6]);
+    		properties.put("header6", strTemp[7]);
+    		properties.put("header7", strTemp[8]);
+    		properties.put("header8", strTemp[9]);
+    		properties.put("header9", strTemp[10]);
+    		properties.put("header10", strTemp[11]);
+    		idxCensus.add(postalCodes,properties);
+        	//System.out.println(caller);
+        	cache.put(strTemp[1], postalCodes);
+        	idxCensus.flush();
+            report.dots();
+        }
+        idxCensus.flush();
+        indexProvider.shutdown();
+        
+        report.finishImport("Nodes");
+        System.out.println("Finished with Census Data");
+    }
+    void importPostalCodes(Reader reader) throws IOException {
+        String[] strTemp;
+        BufferedReader bf = new BufferedReader(reader);
+        final Data data = new Data(bf.readLine(), "\\|", 0);
+        String line;
+        report.reset();
+        LuceneBatchInserterIndexProvider indexProvider = new LuceneBatchInserterIndexProvider(db); 	
+        BatchInserterIndex idxZips = indexProvider.nodeIndex( "PostalCodes", MapUtil.stringMap( "type", "exact" ) );
+        idxZips.setCacheCapacity( "zipcode", 100000 );
+
+        while ((line = bf.readLine()) != null) {
+        	strTemp = line.split("\\|");
+        	long postalCodes = db.createNode(data.update(line));
+        	Map<String, Object> properties = MapUtil.map( "zipcode", strTemp[0]);
+    		properties.put("type", strTemp[1]);
+    		properties.put("zipCity", strTemp[2]);
+    		properties.put("zipState", strTemp[3]);
+    		properties.put("zipCounty", strTemp[4]);
+    		idxZips.add(postalCodes,properties);
+        	//System.out.println(caller);
+        	cache.put(strTemp[0], postalCodes);
+        	cache.put(strTemp[4], postalCodes);
+        	cache.put(strTemp[5], postalCodes);
+        	idxZips.flush();
+            report.dots();
+        }
+        idxZips.flush();
+        indexProvider.shutdown();
+        
+        report.finishImport("Nodes");
+        System.out.println("Finished with Postal Codes");
+    }
+
+    void importCensusAvgIncome(Reader reader) throws IOException {
+        String[] strTemp;
+        BufferedReader bf = new BufferedReader(reader);
+        final Data data = new Data(bf.readLine(), "\\|", 0);
+        String line;
+        report.reset();
+        LuceneBatchInserterIndexProvider indexProvider = new LuceneBatchInserterIndexProvider(db); 	
+        BatchInserterIndex idxInc = indexProvider.nodeIndex( "AverageIncome", MapUtil.stringMap( "type", "exact" ) );
+        idxInc.setCacheCapacity( "county", 100000 );
+
+        while ((line = bf.readLine()) != null) {
+        	strTemp = line.split("\\|");
+        	long lCensusInc = db.createNode(data.update(line));
+        	Long lCommId = cache.get(strTemp[4]);
+            if (lCommId!=null){
+            	db.createRelationship(lCommId, lCensusInc, MyRelationshipTypes.INCOME_IN, null);
+            } 
+        	
+        	
+        	Map<String, Object> properties = MapUtil.map( "county", strTemp[1]);
+    		properties.put("avgIncome", strTemp[2]);
+    		idxInc.add(lCensusInc,properties);
+        	//System.out.println(caller);
+        	idxInc.flush();
+            report.dots();
+        }
+        idxInc.flush();
+        indexProvider.shutdown();
+        
+        report.finishImport("Nodes");
+        System.out.println("Finished with Census Average Income");
+    }    
+    
     
     void importRelationships(Reader reader) throws IOException {
         BufferedReader bf = new BufferedReader(reader);
