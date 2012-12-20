@@ -15,5 +15,6 @@
 	<classpathentry kind="lib" path="/Volumes/HD1/Users/dsfauth/Neo4J/lib/org.apache.servicemix.bundles.jline-0.9.94_1.jar"/>
 	<classpathentry kind="lib" path="/Volumes/HD1/Users/dsfauth/Neo4J/lib/scala-library-2.9.1-1.jar"/>
 	<classpathentry kind="lib" path="/Volumes/HD1/Users/dsfauth/Neo4J/lib/server-api-1.8.M07.jar"/>
+	<classpathentry kind="lib" path="/Volumes/HD1/Users/dsfauth/commons-cli-1.2/commons-cli-1.2.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

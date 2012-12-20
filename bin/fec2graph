@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+exec java -Xmx1G -cp "CODE/fecGraph/lib/*" fecDataImporter.importer.Tool "$@"
+        
